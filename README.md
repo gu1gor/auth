@@ -1,2 +1,2 @@
-# auth
-Autentication API
+# Atentication API
+
