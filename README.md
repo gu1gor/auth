@@ -11,6 +11,7 @@ Esse é um projeto de uma API construída em **Java** e **Spring Boot**, utiliza
 - [Autenticação e Autorização](#-autenticação-e-autorização)
 - [Pré-requisitos](#-pré-requisitos)
 - [Configuração do Banco de Dados](#️-configuração-do-banco-de-dados)
+- [Configuração do JWT](#-configuração-do-jwt)
 - [Como Rodar o Projeto](#️-como-rodar-o-projeto)
 - [Endpoints da API](#-endpoints-da-api)
 - [Autor](#-autor)
@@ -36,21 +37,30 @@ Esse é um projeto de uma API construída em **Java** e **Spring Boot**, utiliza
 ## ⚙️ Funcionalidades
 
 - Cadastro e autenticação de usuários
-- Geração e validação de tokens JWT
-- Controle de acesso por perfis de usuário (USUÁRIO e ADMIN)
-- Proteção de endpoints via Spring Security
+- Geração e validação de tokens JWT (expiração de 2 horas)
+- Controle de acesso por perfis de usuário (`ADMIN` e `USER`)
+- Cadastro de produtos (endpoint restrito a `ADMIN`)
+- Proteção de endpoints via filtro de segurança customizado (`SecurityFilter`)
 - Gerenciamento de versões do banco de dados com Flyway
 
 ---
 
 ## 🔐 Autenticação e Autorização
 
-O projeto define dois perfis de acesso:
+O fluxo de autenticação funciona da seguinte forma:
 
-- **USUÁRIO** → Função padrão para usuários autenticados.
-- **ADMIN** → Função administrativa, utilizada por parceiros gerentes (ex: registro de novos parceiros).
+1. O usuário se cadastra via `/auth/register`, informando `login`, `password` e `role` (`ADMIN` ou `USER`).
+2. Ao efetuar login via `/auth/login`, a API retorna um **token JWT** válido por **2 horas**.
+3. Para acessar endpoints protegidos, o token deve ser enviado no cabeçalho da requisição:
+Authorization: Bearer SEU_TOKEN_JWT
+4. Um filtro de segurança (`SecurityFilter`) intercepta cada requisição, valida o token e autentica o usuário no contexto do Spring Security.
 
-Para acessar endpoints protegidos como usuário **ADMIN**, é necessário fornecer as credenciais de autenticação apropriadas no cabeçalho da requisição (token JWT via header `Authorization: Bearer <token>`).
+Perfis disponíveis:
+
+- **USER** → recebe a permissão `ROLE_USER`.
+- **ADMIN** → recebe as permissões `ROLE_ADMIN` e `ROLE_USER` (acumula os dois níveis de acesso).
+
+O endpoint `POST /product` é restrito a usuários com a role **ADMIN**. Os demais endpoints (fora login/registro) exigem apenas que o usuário esteja autenticado.
 
 ---
 
@@ -84,6 +94,21 @@ Antes de rodar o projeto, você precisa ter instalado:
 
 ---
 
+## 🔑 Configuração do JWT
+
+A geração e validação dos tokens depende de uma chave secreta definida na propriedade `api.security.token.secret`. Configure-a no `application.properties`:
+
+```properties
+api.security.token.secret=SUA_CHAVE_SECRETA_AQUI
+```
+
+> ⚠️ Nunca suba essa chave real para o repositório. O recomendado é usar uma variável de ambiente:
+> ```properties
+> api.security.token.secret=${JWT_SECRET}
+> ```
+
+---
+
 ## ▶️ Como Rodar o Projeto
 
 1. Clone o repositório:
@@ -92,7 +117,7 @@ Antes de rodar o projeto, você precisa ter instalado:
    cd auth
 ```
 
-2. Configure o banco de dados conforme a seção anterior.
+2. Configure o banco de dados e a chave do JWT conforme as seções anteriores.
 
 3. Rode o projeto usando o Maven Wrapper:
 ```bash
@@ -112,29 +137,73 @@ http://localhost:8080
 
 ## 🔌 Endpoints da API
 
-| Método | Endpoint              | Descrição                              | Autenticação |
-|--------|------------------------|------------------------------------------|---------------|
-| POST   | `/auth/register`       | Cadastra um novo usuário                 | Não           |
-| POST   | `/auth/login`          | Autentica um usuário e retorna o token JWT | Não         |
-| GET    | `/usuarios`            | Lista usuários cadastrados               | Sim (ADMIN)   |
+| Método | Endpoint         | Descrição                                | Autenticação |
+|--------|------------------|--------------------------------------------|---------------|
+| POST   | `/auth/register` | Cadastra um novo usuário                   | Não           |
+| POST   | `/auth/login`    | Autentica um usuário e retorna o token JWT | Não           |
+| POST   | `/product`       | Cadastra um produto                        | Sim (ADMIN)   |
 
-> Ajuste essa tabela conforme os endpoints reais implementados nos seus Controllers.
+### Registrar usuário
 
-Exemplo de requisição de login com `curl`:
+**Corpo da requisição:**
+```json
+{
+  "login": "usuario123",
+  "password": "senha123",
+  "role": "ADMIN"
+}
+```
+
+```bash
+curl -X POST http://localhost:8080/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"login": "usuario123", "password": "senha123", "role": "ADMIN"}'
+```
+
+### Login
+
+**Corpo da requisição:**
+```json
+{
+  "login": "usuario123",
+  "password": "senha123"
+}
+```
+
+**Resposta esperada:**
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiJ9..."
+}
+```
+
 ```bash
 curl -X POST http://localhost:8080/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "usuario@email.com", "senha": "123456"}'
+  -d '{"login": "usuario123", "password": "senha123"}'
 ```
 
-Exemplo de requisição autenticada:
-```bash
-curl -X GET http://localhost:8080/usuarios \
-  -H "Authorization: Bearer SEU_TOKEN_JWT"
+### Cadastrar produto (requer ADMIN)
+
+**Corpo da requisição:**
+```json
+{
+  "name": "Produto Exemplo",
+  "price": 9990
+}
 ```
+
+```bash
+curl -X POST http://localhost:8080/product \
+  -H "Authorization: Bearer SEU_TOKEN_JWT" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Produto Exemplo", "price": 9990}'
+```
+
+> ⚠️ Note que `price` é do tipo `Integer` no modelo (não é decimal/BigDecimal), então valores como preço devem ser representados como número inteiro (ex: centavos, se essa for a convenção usada no projeto).
+
+---
 
 ## 👤 Autor
 
 Desenvolvido por **Gustavo Igor**
-
-[![GitHub](https://img.shields.io/badge/GitHub-gu1gor-181717?style=flat&logo=github)](https://github.com/gu1gor)
